@@ -104,7 +104,7 @@ sort = (files, config) ->
 
 # New.
 join = (files, path, type, wrapper) ->
-  debug "Joining files '#{files.map((file) -> file.path).join(', ')}' to '#{path}'"
+  debug "Joining files '#{files.map((file) -> file.path + ' [' + file.data.length + ']').join(', ')}' to '#{path}'"
   joined = files.map((file) -> file.data).join('')
   if type is 'javascript'
     wrapper(path, joined) + joined

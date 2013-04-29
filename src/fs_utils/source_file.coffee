@@ -24,28 +24,42 @@ getDependencies = (data, path, compiler, callback) ->
 
 pipeline = (realPath, path, linters, compiler, callback) ->
   callbackError = (type, stringOrError) =>
-    string = if stringOrError instanceof Error
-      stringOrError.toString().slice(7)
-    else
+    error = if stringOrError instanceof Error
       stringOrError
-    error = new Error string
+    else
+      new Error stringOrError
     error.brunchType = type
     callback error
 
   fs.readFile realPath, 'utf-8', (error, data) =>
     return callbackError 'Reading', error if error?
-    lint data, path, linters, (error) =>
-      if error?.match /^warn\:\s/i
-        logger.warn "Linting of #{path}: #{error}"
-      else
-        return callbackError 'Linting', error if error?
-      compiler.compile data, path, (error, compiled) =>
-        return callbackError 'Compiling', error if error?
-        getDependencies data, path, compiler, (error, dependencies) =>
-          return callbackError 'Dependency parsing', error if error?
-          callback null, {dependencies, compiled}
+    try
+      debug "Loaded file '%s'%s [%s]", path,
+        if realPath isnt path then " -> '" + realPath + "'" else ''
+        data.length
+      lint data, path, linters, (error) =>
+        try
+          if error?.match /^warn\:\s/i
+            logger.warn "Linting of #{path}: #{error}"
+          else
+            return callbackError 'Linting', error if error?
+          compiler.compile data, path, (error, compiled) =>
+            try
+              return callbackError 'Compiling', error if error?
+              getDependencies data, path, compiler, (error, dependencies) =>
+                try
+                  return callbackError 'Dependency parsing', error if error?
+                  callback null, {dependencies, compiled}
+                catch error
+                  callback error
+            catch error
+              callback error
+        catch error
+          callback error
+    catch error
+      callback error
 
-updateCache = (cache, error, result, wrap) ->
+updateCache = (cache, realPath, path, error, result, wrap) ->
   if error?
     cache.error = error
   else
@@ -54,6 +68,10 @@ updateCache = (cache, error, result, wrap) ->
     cache.dependencies = dependencies
     cache.compilationTime = Date.now()
     cache.data = wrap compiled if compiled?
+    debug "Cached file '%s'%s [%s:%s]", path,
+      if realPath isnt path then " -> '" + realPath + "'" else ''
+      if compiled? then compiled.length else '-'
+      if cache.data? then cache.data.length else '-'
   cache
 
 makeWrapper = (wrapper, path, isWrapped, isntModule) ->
@@ -62,10 +80,14 @@ makeWrapper = (wrapper, path, isWrapped, isntModule) ->
 
 makeCompiler = (realPath, path, cache, linters, compiler, wrap) ->
   (callback) ->
-    pipeline realPath, path, linters, compiler, (error, data) =>
-      updateCache cache, error, data, wrap
-      return callback error if error?
-      callback null, cache.data
+      pipeline realPath, path, linters, compiler, (error, data) =>
+        try
+          updateCache cache, realPath, path, error, data, wrap
+          throw error if error?
+          callback null, cache.data
+        catch error
+          logger.error error.toString()
+          callback error
 
 # A file that will be compiled by brunch.
 module.exports = class SourceFile
@@ -88,8 +110,8 @@ module.exports = class SourceFile
     @compilationTime = null
     @error = null
     @compile = makeCompiler realPath, @path, this, linters, compiler, wrap
-
-    debug "Initializing fs_utils.SourceFile: %s", JSON.stringify {
-      @path, isntModule, isWrapped
-    }
+    debug '%s%s (%s%s)', @path,
+      if isHelper then ' -> ' + realPath else ''
+      @type
+      if @isVendor then '|vendor' else ''
     Object.seal this
