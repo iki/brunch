@@ -32,7 +32,9 @@
     "brunch": "./bin/brunch"
   },
   "scripts": {
-    "prepublish": "coffee -o lib/ src/",
+    "prepublish": "node setup.js prepublish",
+    "postpublish": "node setup.js postpublish",
+    "postinstall": "coffee -o lib/ src/",
     "test": "mocha --compilers coffee:coffee-script --require test/common.coffee --colors"
   },
   "dependencies": {
