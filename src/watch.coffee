@@ -207,13 +207,22 @@ loadPackages = (rootPath, callback) ->
  as it does not contain package.json (#{err})"
   deps = Object.keys helpers.extend(json.devDependencies ? {}, json.dependencies)
   # TODO: test if `brunch-plugin` is in dep’s package.json.
-  plugins = deps
-    .filter (dependency) ->
-      dependency isnt 'brunch' and dependency.indexOf('brunch') isnt -1
-    .map (dependency) ->
-      require "#{nodeModules}/#{dependency}"
-  plugins
-
+  loadDeps = (deps, isDev) ->
+    deps
+      .filter (dependency) ->
+        dependency isnt 'brunch' and dependency.indexOf('brunch') isnt -1
+      .map (dependency) ->
+        depPath = "#{nodeModules}/#{dependency}"
+        if isDev
+          try
+            require depPath
+          catch e
+            null
+        else
+          require depPath
+  plugins = loadDeps(Object.keys json.dependencies)
+  devPlugins = loadDeps(Object.keys(json.devDependencies or {}), true)
+  plugins.concat(devPlugins.filter((_) -> _?))
 
 # Load brunch plugins, group them and initialise file watcher.
 #
@@ -234,8 +243,8 @@ initialize = (options, configParams, onCompile, callback) ->
   # Get compilation methods.
   compilers  = plugins.filter(propIsFunction 'compile')
   linters    = plugins.filter(propIsFunction 'lint')
-  minifiers  = plugins.filter(propIsFunction 'minify').concat(
-    plugins.filter(propIsFunction 'optimize')
+  minifiers  = plugins.filter(propIsFunction 'optimize').concat(
+    plugins.filter(propIsFunction 'minify')
   )
   callbacks  = plugins.filter(propIsFunction 'onCompile').map((plugin) -> (args...) -> plugin.onCompile args...)
 
@@ -262,6 +271,13 @@ initialize = (options, configParams, onCompile, callback) ->
       config, watcher, server, fileList, compilers, linters, compile, reload
     }
 
+
+possibleConfigFiles = {}
+possibleConfigFiles[config.paths.config + ext] = true for ext of require.extensions
+
+isConfigFile = (path) ->
+  path of possibleConfigFiles
+
 # Binds needed events to watcher.
 #
 # config    - application config.
@@ -280,9 +296,8 @@ bindWatcherEvents = (config, fileList, compilers, linters, watcher, reload, onCh
       changeFileList compilers, linters, fileList, path, no
     .on 'change', (path) ->
       # If file is special (config.coffee, package.json), restart Brunch.
-      if path is config.paths.config
-        reload no
-      else if path is config.paths.packageConfig
+      if path is config.paths.packageConfig or isConfigFile(path)
+        debug "Detected change of config file '%s'", path
         reload yes
       else
         # Otherwise, just update file list.
