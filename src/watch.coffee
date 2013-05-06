@@ -271,10 +271,12 @@ initialize = (options, configParams, onCompile, callback) ->
       config, watcher, server, fileList, compilers, linters, compile, reload
     }
 
-isConfigFile = (basename, configPath) ->
-  files = Object.keys(require.extensions).map (_) -> configPath + _
-  files.some (file) ->
-    basename is file
+
+possibleConfigFiles = {}
+possibleConfigFiles[config.paths.config + ext] = true for ext of require.extensions
+
+isConfigFile = (path) ->
+  path of possibleConfigFiles
 
 # Binds needed events to watcher.
 #
@@ -287,14 +289,6 @@ isConfigFile = (basename, configPath) ->
 #
 # Returns nothing.
 bindWatcherEvents = (config, fileList, compilers, linters, watcher, reload, onChange) ->
-  possibleConfigFiles = Object.keys(require.extensions)
-    .map (_) ->
-      config.paths.config + _
-    .reduce (obj, _) ->
-      obj[_] = true
-      obj
-    , {}
-
   watcher
     .on 'add', (path) ->
       # Update file list.
@@ -302,9 +296,8 @@ bindWatcherEvents = (config, fileList, compilers, linters, watcher, reload, onCh
       changeFileList compilers, linters, fileList, path, no
     .on 'change', (path) ->
       # If file is special (config.coffee, package.json), restart Brunch.
-      isConfigFile = possibleConfigFiles[path]
-      console.log isConfigFile
-      if path is config.paths.packageConfig or isConfigFile
+      if path is config.paths.packageConfig or isConfigFile(path)
+        debug "Detected change of config file '%s'", path
         reload yes
       else
         # Otherwise, just update file list.
