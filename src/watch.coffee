@@ -289,7 +289,7 @@ initialize = (options, configParams, onCompile, callback) ->
 bindWatcherEvents = (config, fileList, compilers, linters, watcher, reload, onChange) ->
 
   possibleConfigFiles = {}
-  possibleConfigFiles[configPath + ext] = true for ext of require.extensions
+  possibleConfigFiles[config.path.config + ext] = true for ext of require.extensions
 
   isConfigFile = (path) ->
     path of possibleConfigFiles
