@@ -276,11 +276,6 @@ initialize = (options, configParams, onCompile, callback) ->
       config, watcher, server, fileList, compilers, linters, compile, reload
     }
 
-isConfigFile = (basename, configPath) ->
-  files = Object.keys(require.extensions).map (_) -> configPath + _
-  files.some (file) ->
-    basename is file
-
 # Binds needed events to watcher.
 #
 # config    - application config.
@@ -292,13 +287,18 @@ isConfigFile = (basename, configPath) ->
 #
 # Returns nothing.
 bindWatcherEvents = (config, fileList, compilers, linters, watcher, reload, onChange) ->
-  possibleConfigFiles = Object.keys(require.extensions)
-    .map (_) ->
-      config.paths.config + _
-    .reduce (obj, _) ->
-      obj[_] = true
-      obj
-    , {}
+
+  possibleConfigFiles = {}
+  possibleConfigFiles[configPath + ext] = true for ext of require.extensions
+
+  isConfigFile = (path) ->
+    path of possibleConfigFiles
+
+  isPluginsFile = (path) ->
+    path is config.paths.packageConfig
+
+  isSpecialFile = (path) ->
+    path is config.paths.packageConfig or path of possibleConfigFiles
 
   watcher
     .on 'add', (path) ->
@@ -307,10 +307,9 @@ bindWatcherEvents = (config, fileList, compilers, linters, watcher, reload, onCh
       changeFileList compilers, linters, fileList, path, no
     .on 'change', (path) ->
       # If file is special (config.coffee, package.json), restart Brunch.
-      isConfigFile = possibleConfigFiles[path]
-      isPluginsFile = path is config.paths.packageConfig
-      if isConfigFile or isPluginsFile
-        reload isPluginsFile
+      if isSpecialFile path
+        debug "Detected change of config/plugins file '%s'", path
+        reload isPluginsFile path
       else
         # Otherwise, just update file list.
         onChange()
@@ -318,11 +317,8 @@ bindWatcherEvents = (config, fileList, compilers, linters, watcher, reload, onCh
     .on 'unlink', (path) ->
       # If file is special (config.coffee, package.json), exit.
       # Otherwise, just update file list.
-      isConfigFile = possibleConfigFiles[path]
-      isPluginsFile = path is config.paths.packageConfig
-      if isConfigFile or isPluginsFile
-        logger.info "Detected removal of config.coffee / package.json.
-Exiting."
+      if isSpecialFile path
+        logger.info "Detected removal of config.coffee / package.json. Exiting."
         process.exit(0)
       else
         onChange()
