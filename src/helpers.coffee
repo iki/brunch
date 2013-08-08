@@ -7,8 +7,9 @@ os = require 'os'
 sysPath = require 'path'
 logger = require 'loggy'
 {SourceNode} = require 'source-map'
-reader = require 'read-components'
+readComponents = require 'read-components'
 debug = require('debug')('brunch:helpers')
+commonRequireDefinition = require 'commonjs-require-definition'
 # Just require.
 require 'coffee-script'
 
@@ -58,8 +59,20 @@ exports.install = install = (rootPath, callback = (->)) ->
       return callback log
     callback null, stdout
 
-exports.replaceSlashes = replaceSlashes = (config) ->
-  changePath = (string) -> string.replace(/\//g, '\\')
+exports.replaceSlashes = replaceSlashes = do ->
+  if os.platform() is 'win32'
+    (_) -> _.replace(/\//g, '\\')
+  else
+    (_) -> _
+
+
+exports.replaceBackSlashes = replaceBackSlashes = do ->
+  if os.platform() is 'win32'
+    (_) -> _.replace(/\\/g, '\/')
+  else
+    (_) -> _
+
+exports.replaceConfigSlashes = replaceConfigSlashes = (config) ->
   files = config.files or {}
   Object.keys(files).forEach (language) ->
     lang = files[language] or {}
@@ -67,16 +80,16 @@ exports.replaceSlashes = replaceSlashes = (config) ->
 
     # Modify order.
     Object.keys(order).forEach (orderKey) ->
-      lang.order[orderKey] = lang.order[orderKey].map(changePath)
+      lang.order[orderKey] = lang.order[orderKey].map(replaceSlashes)
 
     # Modify join configuration.
     switch toString.call(lang.joinTo)
       when '[object String]'
-        lang.joinTo = changePath lang.joinTo
+        lang.joinTo = replaceSlashes lang.joinTo
       when '[object Object]'
         newJoinTo = {}
         Object.keys(lang.joinTo).forEach (joinToKey) ->
-          newJoinTo[changePath joinToKey] = lang.joinTo[joinToKey]
+          newJoinTo[replaceSlashes joinToKey] = lang.joinTo[joinToKey]
         lang.joinTo = newJoinTo
   config
 
@@ -115,7 +128,7 @@ createJoinConfig = (configFiles) ->
     acc
 
   types = Object.keys(configFiles)
-  result = types
+  joinConfig = types
     .map (type) ->
       configFiles[type].joinTo
     .map (joinTo) ->
@@ -131,7 +144,19 @@ createJoinConfig = (configFiles) ->
       subConfig = Object.keys(joinTo).map(makeChecker).reduce(listToObj, {})
       [types[index], subConfig]
     .reduce(listToObj, {})
-  Object.freeze(result)
+
+  # special matching for plugin helpers
+  types.forEach (type) ->
+    joinConfig[type].pluginHelpers = configFiles[type].pluginHelpers or
+      do ->
+        destFiles = Object.keys joinConfig[type]
+        vendorFiles = destFiles.filter (file) -> /vendor/i.test file
+        if vendorFiles.length > 0
+          vendorFiles[0]
+        else
+          destFiles.pop()
+
+  Object.freeze(joinConfig)
 
 identityNode =
 exports.identityNode = (code, source) ->
@@ -152,7 +177,7 @@ getModuleWrapper = (type, nameCleaner) -> (fullPath, data, isVendor) ->
   else
     # Wrap in common.js require definition.
     if type is 'commonjs'
-      prefix: "window.require.register(#{path}, function(exports, require, module) {\n"
+      prefix: "require.register(#{path}, function(exports, require, module) {\n"
       suffix: "});\n\n"
     else if type is 'amd'
       data: data.replace /define\s*\(/, (match) -> "#{match}#{path}, "
@@ -172,9 +197,7 @@ normalizeWrapper = (typeOrFunction, nameCleaner) ->
 normalizeDefinition = (typeOrFunction) ->
   switch typeOrFunction
     when 'commonjs'
-      path = sysPath.join __dirname, '..', 'vendor', 'require_definition.js'
-      data = fs.readFileSync(path).toString()
-      -> data
+      -> commonRequireDefinition
     when 'amd', false then -> ''
     else
       if typeof typeOrFunction is 'function'
@@ -202,7 +225,7 @@ exports.setConfigDefaults = setConfigDefaults = (config, configPath) ->
   conventions.assets  ?= /assets[\\/]/
   conventions.ignored ?= paths.ignored ? (path) ->
     sysPath.basename(path)[0] is '_'
-  conventions.vendor  ?= /(^components|vendor)[\\/]/
+  conventions.vendor  ?= /(^bower_components|vendor)[\\/]/
 
   config.notifications ?= true
   config.sourceMaps   ?= true
@@ -273,9 +296,9 @@ exports.loadConfig = (configPath = 'config', options = {}, callback) ->
   deprecations.forEach logger.warn if deprecations.length > 0
 
   recursiveExtend config, options
-  replaceSlashes config if os.platform() is 'win32'
+  replaceConfigSlashes config if os.platform() is 'win32'
   normalizeConfig config
-  reader.readBowerComponents '.', (error, bowerComponents) ->
+  readComponents '.', 'bower', (error, bowerComponents) ->
     if error and not /ENOENT/.test(error.toString())
       logger.error error
     bowerComponents ?= []

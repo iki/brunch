@@ -1,65 +1,26 @@
 'use strict'
 
-each = require 'async-each'
 debug = require('debug')('brunch:source-file')
-fs = require 'fs'
 sysPath = require 'path'
-logger = require 'loggy'
-nodeFactory = require('../helpers').identityNode
+os = require 'os'
+{pipeline} = require './pipeline'
+{identityNode, replaceBackSlashes} = require '../helpers'
 {SourceMapConsumer, SourceMapGenerator, SourceNode} = require 'source-map'
 
-# Run all linters.
-lint = (data, path, linters, callback) ->
-  if linters.length is 0
-    callback null
-  else
-    each linters, (linter, callback) ->
-      linter.lint data, path, callback
-    , callback
-
-# Extract files that depend on current file.
-getDependencies = (data, path, compiler, callback) ->
-  if compiler.getDependencies
-    compiler.getDependencies data, path, callback
-  else
-    callback null, []
-
-pipeline = (realPath, path, linters, compiler, callback) ->
-  callbackError = (type, stringOrError) =>
-    string = if stringOrError instanceof Error
-      stringOrError.toString().replace /^([^:]+:\s+)/, ''
-    else
-      stringOrError
-    error = new Error string
-    error.brunchType = type
-    callback error
-
-  fs.readFile realPath, 'utf-8', (error, source) =>
-    return callbackError 'Reading', error if error?
-    lint source, path, linters, (error) =>
-      if error?.match /^warn\:\s/i
-        logger.warn "Linting of #{path}: #{error}"
-      else
-        return callbackError 'Linting', error if error?
-      compiler.compile source, path, (error, compiledData) =>
-        return callbackError 'Compiling', error if error?
-        # compiler is able to produce sourceMap
-        if typeof compiledData is 'object'
-          sourceMap = compiledData.map
-          compiled = compiledData.code
-        else
-          compiled = compiledData
-        getDependencies source, path, compiler, (error, dependencies) =>
-          return callbackError 'Dependency parsing', error if error?
-          callback null, {dependencies, compiled, source, sourceMap}
+isWindows = os.platform() is 'win32'
 
 updateCache = (realPath, cache, error, result, wrap) ->
   if error?
     cache.error = error
+  else if not result?
+    cache.error = null
+    cache.data = null
+    cache.compilationTime = Date.now()
   else
     {dependencies, compiled, source, sourceMap} = result
+    filePath = replaceBackSlashes realPath
     if sourceMap
-      debug "Generated source map for '#{realPath}': " + JSON.stringify sourceMap
+      debug "Generated source map for '#{filePath}': " + JSON.stringify sourceMap
 
     cache.error = null
     cache.dependencies = dependencies
@@ -78,16 +39,21 @@ updateCache = (realPath, cache, error, result, wrap) ->
       suffix = wrapped.slice sourcePos + compiled.length
 
     cache.node = if sourceMap?
-      map = new SourceMapConsumer sourceMap
+      mapping = if typeof sourceMap is 'string'
+        JSON.parse sourceMap.replace /^\)\]\}'/, ''
+      else
+        sourceMap
+      mapping.sources = mapping.sources.map(replaceBackSlashes) if isWindows and mapping.sources
+      map = new SourceMapConsumer mapping
       SourceNode.fromStringWithSourceMap nodeData, map
     else
-      nodeFactory nodeData, realPath
+      identityNode nodeData, filePath
 
     cache.node.prepend prefix if prefix
     cache.node.add suffix if suffix
 
-    cache.node.source = realPath
-    cache.node.setSourceContent realPath, source
+    cache.node.source = filePath
+    cache.node.setSourceContent filePath, source
 
   cache
 
@@ -95,29 +61,21 @@ makeWrapper = (wrapper, path, isWrapped, isntModule) ->
   (node) ->
     if isWrapped then wrapper path, node, isntModule else node
 
-makeCompiler = (realPath, path, cache, linters, compiler, wrap) ->
+makeCompiler = (path, cache, linters, compilers, wrap) ->
   (callback) ->
-    pipeline realPath, path, linters, compiler, (error, data) =>
-      updateCache realPath, cache, error, data, wrap
+    pipeline path, linters, compilers, (error, data) =>
+      updateCache path, cache, error, data, wrap
       return callback error if error?
       callback null, cache.data
 
 # A file that will be compiled by brunch.
 module.exports = class SourceFile
-  constructor: (path, compiler, linters, wrapper, isHelper, isVendor) ->
-    isntModule = isHelper or isVendor
+  constructor: (@path, compilers, linters, wrapper, @isHelper, isVendor) ->
+    compiler = compilers[0]
+    isntModule = @isHelper or isVendor
     isWrapped = compiler.type in ['javascript', 'template']
 
-    # If current file is provided by brunch plugin, use fake path.
-    realPath = path
-    @path = if isHelper
-      compilerName = compiler.constructor.name
-      fileName = "brunch-#{compilerName}-#{sysPath.basename realPath}"
-      sysPath.join 'vendor', 'scripts', fileName
-    else
-      path
     @type = compiler.type
-    wrap = makeWrapper wrapper, @path, isWrapped, isntModule
     @source = null
     @data = ''
     @node = null
@@ -126,7 +84,9 @@ module.exports = class SourceFile
     @error = null
     @removed = false
     @disposed = false
-    @compile = makeCompiler realPath, @path, this, linters, compiler, wrap
+
+    wrap = makeWrapper wrapper, @path, isWrapped, isntModule
+    @compile = makeCompiler @path, this, linters, compilers, wrap
 
     debug "Initializing fs_utils.SourceFile: %s", JSON.stringify {
       @path, isntModule, isWrapped

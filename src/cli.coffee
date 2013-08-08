@@ -7,11 +7,10 @@ program
   .version(require('../package.json').version)
 
 program
-  .command('new [path]')
+  .command('new [skeleton] [path]')
   .description('Create new brunch project in path [.]. Short-cut: n')
-  .option('-s, --skeleton [url-or-path]', 'path to / git URL of application skeleton (template)')
   .action ->
-    commands.new program.args[1].skeleton, program.args[0]
+    commands.new program.args[0], program.args[1]
 
 program
   .command('build')
@@ -51,6 +50,15 @@ exports.run = ->
     successor or similar:
         npm install -g mocha-phantomjs
         mocha-phantomjs [options] <your-html-file-or-url>
+    '''
+  if command in ['n', 'new'] and '--skeleton' in args
+    return console.error '''`--skeleton` option has been removed from `brunch new`.
+
+    The syntax is now simply:
+
+    brunch new <path-or-URI> [optional-output-dir]
+    brunch new github:brunch/dead-simple
+    brunch new gh:paulmillr/brunch-with-chaplin
     '''
 
   fullCommand = switch command

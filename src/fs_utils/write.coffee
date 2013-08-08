@@ -7,14 +7,21 @@ helpers = require '../helpers'
 
 getPaths = (sourceFile, joinConfig) ->
   sourceFileJoinConfig = joinConfig[sourceFile.type + 's'] or {}
-  Object.keys(sourceFileJoinConfig).filter (generatedFilePath) ->
-    checker = sourceFileJoinConfig[generatedFilePath]
-    checker sourceFile.path
+  Object.keys(sourceFileJoinConfig)
+    .filter (key) ->
+      key isnt 'pluginHelpers'
+    .filter (generatedFilePath) ->
+      if sourceFile.isHelper
+        sourceFileJoinConfig.pluginHelpers is generatedFilePath
+      else
+        checker = sourceFileJoinConfig[generatedFilePath]
+        checker sourceFile.path
 
 getFiles = (fileList, config, joinConfig) ->
   map = {}
 
   fileList.files.forEach (file) ->
+    return if not file.error? and not file.data?
     paths = getPaths file, joinConfig
     paths.forEach (path) ->
       map[path] ?= []

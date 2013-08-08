@@ -1,31 +1,31 @@
-# Brunch 1.7.0 (unreleased)
-* Added **source maps** support! Big thanks to [Pierre Lepers](https://github.com/plepers) and [es128](https://github.com/es128).
+# Brunch 1.7.0 (23 July 2013)
+* Added **source maps** support! Big thanks to [Pierre Lepers](https://github.com/plepers) and [Elan Shanker](https://github.com/es128).
 * Added **Twitter Bower** package manager support.
   The support is very different from modern builders.
   You don’t need to specify concat order or list all files, brunch will do that for you automatically.
-  Note that not all possible packages can be consumed:
-    * If package has component.json instead of bower.json, it won’t be consumed (due to ambiguity with other supported package manager component(1).
-    * If bower.json doesn’t have one of (main, scripts, styles) field, it won’t be consumed. This is required
-      for no-bullshit automatic compilation. Bower itself does not have this constraint,
-      though with steps like that we hope it will.
+  **But**, some packages don’t specify which files they include and
+  on which packages they depend.
+  You may specify `overrides` property in root `bower.json`, see
+  [read-components docs](http://github.com/paulmillr/read-components)
 * Added proper **AMD support**. Just include almond.js with your AMD app
   and brunch will do require.js optimizer job for you.
+* Added ability to use multiple compilator plugins for one file.
 * Added `require.list` support to default require definition of app. This allows to automatically load tests and stuff.
-* Removed files are now actually removed from compiled output.
-* Improved compilation performance.
-* Removed `addSourceURLs` directive. Use source maps instead.
-* Improved error messages when there’s a need in `npm install`.
 * Added `config.paths.watched` that replaces
   `config.paths.{app,test,vendor,assets}`
 * Added `config.modules.nameCleaner`, which allows you to set
   filterer function for module names, for example, change all
-  app/file to file. Brunch auto-calculates it now for all
-  `config.paths.app` values.
-  If you set `config.paths.app` to `src` and place source into that dir,
-  all your modules will have nice path names just as if they were in `app`.
+  definitions of app/file to file (as done by default).
 * Added `config.fileListInterval` config prop that allows to set an
   interval in ms which determines how often brunch file list
-  should be checked for new files (internal and usually not needed prop).
+  should be checked for new files (internal property).
+* Added detailed messages of what was done to `compiled in` logs.
+* Removed files are now actually removed from compiled output.
+* Removed `config.modules.addSourceURLs` directive. Use source maps instead.
+* Improved compilation performance.
+* Improved error messages when there’s a need in `npm install`.
+* Changed syntax of `brunch new` to `brunch new <uri> [dir]`
+* Fixed advanced `conventions.assets` issues (e.g. `/styles\/img/`)
 
 # Brunch 1.6.7 (8 May 2013)
 * Fixed `brunch new --skeleton`

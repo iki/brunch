@@ -11,8 +11,8 @@ You can also import node.js modules in configuration file.
 `Object`: `paths` contains application paths to key directories. Paths are simple strings.
 
 * `public` key: path to build directory that would contain output.
-
-* Other valid keys, but not recommended to use: `app`, `vendor`, `root`.
+* `watched` key: list of all watched paths by brunch. Default:
+  `['app', 'test', 'vendor']`
 
 Example:
 
@@ -22,7 +22,6 @@ paths:
 ```
 
 ## `files`
-
 
 `Required, object`: `files` configures handling of application files: which compiler would be used on which file, what name should output file have etc.
 
@@ -34,6 +33,7 @@ paths:
     * order: (optional) defines compilation order. `vendor` files will be compiled before other ones even if they are not present here.
         * before: list of files that will be loaded before other files
         * after: list of files that will be loaded after other files
+    * pluginHelpers: (optional) specify which output file plugins' include files concatenate into. Defaults to either the first output file with `vendor` in its path or the last output file in your joinTo object.
 
 All files from `vendor` directory are automatically (by-default) loaded before all files from `app` directory. So, `vendor/scripts/jquery.js` would be loaded before `app/script.js` even if order config is empty.
 
@@ -52,6 +52,7 @@ files:
         'vendor/scripts/underscore-1.3.1.js',
         'vendor/scripts/backbone-0.9.0.js'
       ]
+    pluginHelpers: 'javascript/vendor.js'
 
   stylesheets:
     joinTo: 'stylesheets/app.css'
@@ -104,17 +105,15 @@ conventions:
 `modules.wrapper`: `String, Boolean or Function`: a wrapper that will be wrapped around compiled-to-javascript code in non-vendor directories. Values:
 
 * `commonjs` (Default) — CommonJS wrapper.
-* `amd` — AMD wrapper.
+* `amd` — AMD `r.js`-like wrapper.
 * `false` — no wrapping. Files will be compiled as-is.
 * Function that takes path and data
 
 `modules.definition`: `String, Boolean or Function` a code that will be added on top of every generated JavaScript file. Values:
 
 * `commonjs` (Default) — CommonJS require definition.
-* `false` — no definition.
+* `amd`, `false` — no definition.
 * Function that takes path and data
-
-`modules.addSourceURLs`: `Boolean` determines if all modules should be wrapped in `Function()` with [`sourceURL`](http://www.html5rocks.com/en/tutorials/developertools/sourcemaps/) mappings for much easier debugging. Works only in development environment. Default value is `false`.
 
 Example:
 
@@ -124,30 +123,38 @@ Example:
     modules:
       wrapper: 'amd'
       definition: 'amd'
-      addSourceURLs: true
 
-    # Same as 'commonjs', but in function implementation.
+    # Same as 'commonjs'.
     modules:
       wrapper: (path, data) ->
         """
-    window.require.define({#{path}: function(exports, require, module) {
+    require.define({#{path}: function(exports, require, module) {
       #{data}
     }});\n\n
         """
-      definition: false
   ```
+
+## `nameCleaner`
+`Function`: Allows you to set filterer function for module names,
+for example, change all app/file to file. Example:
+
+```coffeescript
+# Default behaviour.
+config:
+  modules:
+    nameCleaner: (path) ->
+      path.replace(/^app\//, '')
+```
 
 ## `notifications`
 
 
-`Boolean`: Enables or disables Growl / inotify / `terminal-notifier.app <https://github.com/alloy/terminal-notifier#download>`_ (OS X Mountain Lion +) notifications. Default value is true (enabled).
+`Boolean`: enables or disables Growl / inotify / `terminal-notifier.app <https://github.com/alloy/terminal-notifier#download>`_ (OS X Mountain Lion +) notifications. Default value is `true` (enabled).
 
 ## `optimize`
 
 
-`Optional, boolean`: determines if minifiers should be enabled or not.
-
-Default value is `false` (`true` if you run `brunch build --optimize`).
+`Boolean`: determines if minifiers should be enabled or not. Default value is `false` (`true` if you run `brunch build --optimize`).
 
 ## `server`
 
@@ -173,3 +180,13 @@ server:
   port: 6832
   base: '/myapp'
 ```
+
+## `sourceMaps`
+
+
+`Boolean`: enables or disables Source Map generation. Default value is `true` (enabled).
+
+## `fileListInterval`
+
+`Number`: Allows to set an interval in ms which determines how often brunch file list
+should be checked for new files (internal and usually not needed prop).

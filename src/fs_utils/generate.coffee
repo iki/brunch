@@ -3,6 +3,7 @@
 debug = require('debug')('brunch:generate')
 fs = require 'fs'
 sysPath = require 'path'
+waterfall = require 'async-waterfall'
 common = require './common'
 {SourceMapConsumer, SourceMapGenerator, SourceNode} = require 'source-map'
 
@@ -85,7 +86,7 @@ sortByConfig = (files, config) ->
       before: config.before ? []
       after: config.after ? []
       vendorConvention: (config.vendorConvention ? -> no)
-      bowerMapping: config.bowerMapping
+      bowerMapping: config.bowerMapping ? {}
     files.slice().sort (a, b) -> sortBowerComponents cfg, a, b
   else
     files
@@ -123,34 +124,46 @@ concat = (files, path, type, definition) ->
   debug "Concatenating #{files.map((_) -> _.path).join(', ')} to #{path}"
   files.forEach (file) ->
     root.add file.node
+    root.add ';' if type is 'javascript'
     #debug JSON.stringify(file.node)
     root.setSourceContent file.node.source, file.source
 
   root.prepend definition() if type is 'javascript'
   root.toStringWithSourceMap file: path
 
-optimize = (data, smap, path, optimizer, isEnabled, callback) ->
-  if isEnabled
-    (optimizer.optimize or optimizer.minify) data, path, (error, result) ->
-      if typeof result isnt 'string' # we have sourcemap
-        {code, map} = result
-        smConsumer = new SourceMapConsumer smap.toJSON()
-        map = SourceMapGenerator.fromSourceMap new SourceMapConsumer map
-        map._sources.add path
-        map._mappings.forEach (mapping) ->
-          mapping.source = path
-        map.applySourceMap smConsumer
+optimize = (data, prevMap, path, optimizers, isEnabled, callback) ->
+  initial = {data, code: data, path, map: prevMap}
+  return callback null, initial unless isEnabled
+
+  chained = optimizers.map (optimizer) ->
+    (params, next) ->
+      optimizer._optimize params, (error, optimized) ->
+        return next error if error?
+        code = optimized.data
+        map = optimized.map
+        if map?
+          json = params.map.toJSON()
+          smConsumer = new SourceMapConsumer json
+          newMap = SourceMapGenerator.fromSourceMap new SourceMapConsumer map
+          newMap._sources.add path
+          newMap._mappings.forEach (mapping) ->
+            mapping.source = path
+          newMap._sourcesContents ?= {}
+          newMap._sourcesContents["$#{path}"] = ''  # data
+          newMap.applySourceMap smConsumer
+        else
+          newMap = params.map
         result = code
-      callback error, result, map
-  else
-    callback null, data, smap
+        next error, {data: code, code, map: newMap}
+  chained.unshift (next) -> next null, initial
+  waterfall chained, callback
 
 generate = (path, sourceFiles, config, optimizers, callback) ->
-  type = if sourceFiles.some((file) -> file.type is 'javascript')
+  type = if sourceFiles.some((file) -> file.type in ['javascript', 'template'])
     'javascript'
   else
     'stylesheet'
-  optimizer = optimizers.filter((optimizer) -> optimizer.type is type)[0]
+  optimizers = optimizers.filter((optimizer) -> optimizer.type is type)
 
   sorted = sort sourceFiles, config
 
@@ -159,19 +172,20 @@ generate = (path, sourceFiles, config, optimizers, callback) ->
   withMaps = (map and config.sourceMaps)
   mapPath = "#{path}.map"
 
-  optimize code, map, path, optimizer, config.optimize, (error, data, map) ->
+  optimize code, map, path, optimizers, config.optimize, (error, data) ->
     return callback error if error?
 
     if withMaps
       base = sysPath.basename mapPath
-      data += if type is 'javascript'
-        "\n//# sourceMappingURL=#{base}"
+      controlChar = if config.sourceMaps is 'new' then '#' else '@'
+      data.code += if type is 'javascript'
+        "\n//#{controlChar} sourceMappingURL=#{base}"
       else
-        "\n/*# sourceMappingURL=#{base}*/"
+        "\n/*#{controlChar} sourceMappingURL=#{base}*/"
 
-    common.writeFile path, data, ->
+    common.writeFile path, data.code, ->
       if withMaps
-        common.writeFile mapPath, map.toString(), callback
+        common.writeFile mapPath, data.map.toString(), callback
       else
         callback()
 
